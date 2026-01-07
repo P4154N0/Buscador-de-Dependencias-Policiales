@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa de Dependencias Policiales - Superintendencia de Comunicaciones</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0; 
+            padding: 20px;
+            background: #f0f2f5; 
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        /* --- HEADER CON LOGO --- */
+        .header-institucional {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #2980b9;
+        }
+        .logo-img {
+            height: 100px; /* Tamaño profesional para el logo */
+            width: auto;
+        }
+        h2 { 
+            color: #2c3e50; 
+            margin: 0; 
+            font-size: 32px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Contenedor principal extra ancho */
+        .container { 
+            max-width: 1500px; 
+            width: 95%;
+            margin: auto; 
+            background: white; 
+            padding: 35px; 
+            border-radius: 15px; 
+            box-shadow: 0 6px 20px rgba(0,0,0,0.1); 
+            flex: 1;
+        }
+
+        select { 
+            width: 100%; 
+            padding: 15px; 
+            font-size: 18px; 
+            border-radius: 10px; 
+            border: 2px solid #3498db; 
+            margin-bottom: 30px; 
+            background-color: #fff; 
+            color: #2c3e50;
+            font-weight: bold;
+            cursor: pointer; 
+        }
+
+        /* Mapa de gran tamaño */
+        #map { 
+            height: 700px; 
+            width: 100%; 
+            border-radius: 12px; 
+            border: 1px solid #ddd; 
+            z-index: 1; 
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        /* Listado de tarjetas */
+        .lista-resultados { 
+            margin-top: 40px; 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(450px, 1fr)); 
+            gap: 30px; 
+        }
+        .card { 
+            padding: 25px; 
+            background: #f8fbff; 
+            border-left: 10px solid #2980b9; 
+            border-radius: 12px; 
+            font-size: 16px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+            transition: all 0.3s ease; 
+        }
+        .card:hover { 
+            transform: translateY(-5px); 
+            box-shadow: 0 12px 20px rgba(0,0,0,0.15); 
+            background: #fff;
+        }
+        .label { 
+            font-weight: bold; 
+            color: #34495e; 
+            display: inline-block; 
+            width: 100px; 
+        }
+        .dep-nombre { 
+            font-weight: bold; 
+            color: #2980b9; 
+            margin-bottom: 15px; 
+            display: block; 
+            font-size: 20px; 
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .no-coords { 
+            color: #d35400; 
+            font-weight: bold;
+            display: block;
+            margin-top: 15px;
+            padding: 10px;
+            background: #fff3e0;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        /* Footer centrado */
+        .footer {
+            text-align: center;
+            padding: 35px;
+            margin-top: 50px;
+            color: #7f8c8d;
+            font-size: 15px;
+            border-top: 1px solid #dcdde1;
+            background: #fff;
+        }
+        .footer__enlace { color: #2980b9; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header class="header-institucional">
+        <img src="img/logo.jpg" alt="Logo Superintendencia" class="logo-img">
+        <h2>Buscador de Dependencias Policiales</h2>
+    </header>
+    
+    <select id="comboPartido" onchange="actualizarMapa()">
+        <option value="">Cargando base de datos institucional...</option>
+    </select>
+    
+    <div id="map"></div>
+    
+    <div id="lista" class="lista-resultados"></div>
+</div>
+
+<footer class="footer">
+    <p>
+        Desarrollado 💻 por un 
+        <a class="footer__enlace" href="https://www.linkedin.com/in/hector-pablo-graff/" target="_blank" rel="noopener noreferrer">
+            <span style="color:#2c3e50">P4154N0</span>
+        </a>
+        de 🇦🇷 que toma 🧉 | Proyecto para Centro de Despacho Coronel Suárez
+    </p>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    let map;
+    let markersLayer = L.layerGroup(); 
+    let dependencias = [];
+
+    async function init() {
+        map = L.map('map').setView([-36.6, -60.5], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        markersLayer.addTo(map);
+
+        try {
+            const res = await fetch('datos.json'); 
+            dependencias = await res.json();
+
+            const combo = document.getElementById("comboPartido");
+            const partidosUnicos = [...new Set(dependencias.map(d => d.PARTIDO))]
+                .filter(p => p && p !== "S/D")
+                .sort();
+            
+            combo.innerHTML = '<option value="">-- SELECCIONE UN PARTIDO --</option>';
+            partidosUnicos.forEach(p => {
+                let opt = document.createElement("option");
+                opt.value = p; opt.textContent = p;
+                combo.appendChild(opt);
+            });
+        } catch (error) {
+            console.error("Error:", error);
+            document.getElementById("comboPartido").innerHTML = '<option>Error de conexión</option>';
+        }
+    }
+
+    function actualizarMapa() {
+        const partidoSeleccionado = document.getElementById("comboPartido").value;
+        const listaDiv = document.getElementById("lista");
+        
+        markersLayer.clearLayers();
+        listaDiv.innerHTML = "";
+
+        if (!partidoSeleccionado) return;
+
+        const filtrados = dependencias.filter(d => d.PARTIDO === partidoSeleccionado);
+        const puntosConCoordenadas = [];
+
+        filtrados.forEach(dep => {
+            const card = document.createElement("div");
+            card.className = "card";
+            
+            let htmlCard = `
+                <span class="dep-nombre">${dep.DEPENDENCIA}</span>
+                <p><span class="label">TELÉFONO:</span> ${dep.TELEFONO}</p>
+                <p><span class="label">DIRECCIÓN:</span> ${dep.DIRECCIÓN}</p>
+                <p><span class="label">LOCALIDAD:</span> ${dep.LOCALIDAD}</p>
+            `;
+
+            const latVal = dep.LATITUD || dep.LAT;
+            const lngVal = dep.LONGITUD || dep.LNG;
+
+            if (latVal && lngVal && latVal !== "" && lngVal !== "") {
+                const lat = parseFloat(latVal);
+                const lng = parseFloat(lngVal);
+                
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const marker = L.marker([lat, lng])
+                        .bindPopup(`<div style="font-family: sans-serif; min-width: 200px;">
+                            <b style="color:#2980b9; font-size: 14px;">${dep.DEPENDENCIA}</b><br><br>
+                            <b>Tel:</b> ${dep.TELEFONO}<br>
+                            <b>Dir:</b> ${dep.DIRECCIÓN}</div>`);
+                    
+                    markersLayer.addLayer(marker);
+                    puntosConCoordenadas.push([lat, lng]);
+                }
+            } else {
+                htmlCard += `<span class="no-coords">📍 UBICACIÓN NO MAPEADA</span>`;
+            }
+
+            card.innerHTML = htmlCard;
+            listaDiv.appendChild(card);
+        });
+
+        if (puntosConCoordenadas.length > 0) {
+            const bounds = L.latLngBounds(puntosConCoordenadas);
+            map.fitBounds(bounds, { padding: [100, 100] });
+            if (puntosConCoordenadas.length === 1) map.setZoom(16);
+        } else {
+            map.setView([-36.6, -60.5], 6);
+        }
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>
